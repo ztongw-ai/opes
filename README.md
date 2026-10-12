@@ -6,21 +6,21 @@
 
 它只规定怎么量，不替任何人打分。
 
-## 最快的用法：交给你的 Agent
+## 怎么用
 
-把下面这句话，连同你要评的 PPT，一起发给你的 Agent（Claude、ChatGPT、豆包、Kimi 等都可以）：
+**直接打开评分卡**：https://ztongw-ai.github.io/opes/
+
+逐项点分，实时出总分、九维雷达图、S/A/B/C 评级和最差项，可以切换权重档、导出结果。页面完全离线运行，数据不离开你的浏览器。
+
+**想装在自己电脑上**：把下面这句话发给你的 Agent（Claude Code、Codex、Cursor 等能操作电脑的都可以），它会帮你下载、打开，并带你走一遍评测流程：
 
 ```
-请先读 https://github.com/ztongw-ai/opes/blob/main/AGENT.md ，然后按里面的标准评测我给你的这份 PPT。
+帮我装上这个 PPT 评分工具并打开：https://github.com/ztongw-ai/opes
 ```
 
-如果你的 Agent 不能联网，就打开 [AGENT.md](AGENT.md)，把全文复制给它。
+也可以自己动手：下载本仓库，双击 [index.html](index.html)。
 
-## 自己动手打分
-
-打开在线评分卡：**https://ztongw-ai.github.io/opes/**
-
-逐项点分，实时出总分、九维雷达图、S/A/B/C 评级和最差项，可以切换权重档、导出结果。页面完全离线运行，数据不离开你的浏览器。也可以把 [index.html](index.html) 下载到本地直接打开。
+分数由你自己打。Agent 只负责安装和陪跑，具体约定见 [AGENT.md](AGENT.md)。
 
 ## 这把尺子的四个设计
 
@@ -33,7 +33,7 @@
 
 | 文件 | 内容 |
 |---|---|
-| [AGENT.md](AGENT.md) | 给 Agent 的评测说明，自带完整评分细则，单文件可用 |
+| [AGENT.md](AGENT.md) | 给 Agent 的说明：怎么安装、怎么陪用户走完一次评测 |
 | [docs/framework.md](docs/framework.md) | 评估框架：设计原则、三层九维、计分机制、权重档、评测模式 |
 | [docs/rubric.md](docs/rubric.md) | 评分细则：40 个子指标的逐项锚点 |
 | [docs/prompts.md](docs/prompts.md) | 公开题集（12 题）与施测手册 |
