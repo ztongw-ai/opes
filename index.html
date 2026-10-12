@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>生成式演示内容评估模型</title>
+<style>
+  :root{
+    --ink:#17181d; --body:#3c4046; --sub:#8b9099; --faint:#b4b8bf;
+    --paper:#f4f2ec; --paper2:#efece4; --card:#ffffff; --line:#e6e2d7; --line2:#eceef1;
+    --accent:#2743c4; --accent-soft:#eaeeff;
+    --o:#2f5fe0; --h:#7a5af5; --s:#cf8412;
+    --g-s:#1f9d63; --g-a:#2f5fe0; --g-b:#cf8412; --g-c:#d64545;
+    --serif:Georgia,"Songti SC","Times New Roman",serif;
+    --sans:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:var(--sans);color:var(--body);background:var(--paper);
+    font-size:15px;line-height:1.7;-webkit-font-smoothing:antialiased}
+  h1,h2,h3,h4{color:var(--ink);line-height:1.25;margin:0;font-weight:700;letter-spacing:-.01em}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 26px}
+  .eyebrow{font-family:var(--serif);font-style:italic;color:var(--accent);font-size:15px;letter-spacing:.02em}
+  .sec-no{font-family:var(--serif);font-size:14px;color:var(--faint);letter-spacing:.08em}
+  a{color:var(--accent);text-decoration:none}
+  /* progress + nav */
+  .pbar{position:fixed;top:0;left:0;height:3px;width:0;background:var(--accent);z-index:60;transition:width .1s}
+  nav{position:sticky;top:0;z-index:50;background:rgba(244,242,236,.86);backdrop-filter:saturate(1.4) blur(10px);
+    border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:58px}
+  nav .brand{font-weight:800;color:var(--ink);letter-spacing:.04em;font-size:16px}
+  nav .brand b{color:var(--accent)}
+  nav .brand small{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--sub);margin-left:8px;font-size:12px;letter-spacing:0}
+  nav .links{display:flex;gap:4px}
+  nav .links a{color:var(--sub);font-size:13.5px;padding:7px 12px;border-radius:8px;transition:.15s}
+  nav .links a:hover{color:var(--ink);background:var(--paper2)}
+  nav .links a.on{color:var(--accent);font-weight:600}
+  @media(max-width:760px){nav .links a{padding:7px 8px;font-size:12.5px}}
+  /* opening: 方法论 + 倒金字塔模型 (dark) */
+  .hero-model{background:radial-gradient(120% 120% at 12% -10%,#20222b 0%,#141519 58%,#101115 100%);color:#e9e6dd;
+    padding:46px 0 60px;position:relative;overflow:hidden}
+  .hero-model:before{content:"";position:absolute;right:-160px;top:-140px;width:560px;height:560px;
+    background:radial-gradient(circle,rgba(39,67,196,.30),transparent 62%);pointer-events:none}
+  .hero-model .eyebrow{color:#9fb0ff}
+  .hero-model h1{color:#fff;font-size:clamp(25px,3.4vw,38px);margin:12px 0 0;letter-spacing:-.01em;line-height:1.2}
+  .hero-model h1 .em{font-family:var(--serif);font-style:italic;font-weight:400;color:#c6d0ff}
+  .hero-model h1 .em2{color:#fff;box-shadow:inset 0 -10px 0 rgba(39,67,196,.6)}
+  .hero-model .lead{font-size:15.5px;color:#b7b4ad;max-width:800px;margin-top:14px}
+  .hero-model .lead b{color:#fff}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:10px;font-size:14.5px;
+    font-weight:600;cursor:pointer;border:1px solid transparent;transition:.16s;text-decoration:none}
+  .btn.primary{background:var(--accent);color:#fff}
+  .btn.primary:hover{background:#1c34a8;transform:translateY(-1px)}
+  .btn.ghost{background:transparent;color:#e9e6dd;border-color:rgba(255,255,255,.28)}
+  .btn.ghost:hover{border-color:#fff}
+  .hero-cta{margin-top:26px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .hero-note{font-size:12px;color:#7b7f88}
+  /* 首屏流水线:评什么 → 怎么打分 → 得出什么 */
+  .pipeline{display:flex;align-items:stretch;gap:0;margin-top:26px}
+  @media(max-width:920px){.pipeline{flex-direction:column;gap:14px}.pipe-arrow{display:none}}
+  .stage{flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:16px;
+    padding:18px 18px 20px;display:flex;flex-direction:column;min-width:0}
+  .stage.s1{flex:1.12}
+  .pipe-arrow{flex:none;width:42px;display:flex;align-items:center;justify-content:center;color:#565b64;font-size:20px}
+  .stage-h{display:flex;align-items:center;gap:11px;margin-bottom:15px}
+  .sno{font-family:var(--serif);font-style:italic;font-size:22px;color:#8f96ff}
+  .stage-h .st{font-weight:700;color:#fff;font-size:16px;line-height:1.2}
+  .stage-h .ss{font-size:12px;color:#8a8f98}
+  .stage .pyr-wrap{max-width:280px;width:100%;margin:0 auto 14px}
+  .pyr-svg{width:100%;height:auto;display:block;overflow:visible}
+  .dim-legend{display:flex;flex-direction:column;gap:6px}
+  .lg-row{display:flex;flex-direction:column;gap:1px;padding:6px 10px;border-radius:9px;border:1px solid transparent;transition:.15s}
+  .lg-row.on{background:rgba(255,255,255,.06);border-color:rgba(159,176,255,.45)}
+  .lg-name{font-size:12.5px;font-weight:700;color:#e9e6dd}
+  .lg-dims{font-size:12px;color:#9a9ea8}
+  .stage-cap{margin-top:13px;font-size:11.5px;color:#7b7f88;text-align:center;font-family:var(--serif);font-style:italic}
+  .rules{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:13px}
+  .rules li{display:flex;gap:11px;font-size:13.5px;color:#b7b4ad;line-height:1.5}
+  .rules li b{color:#fff;font-weight:600}
+  .ri{flex:none;width:22px;height:22px;border-radius:6px;background:rgba(255,255,255,.08);color:#9fb0ff;
+    display:flex;align-items:center;justify-content:center;font-size:12px;margin-top:1px}
+  .rules-tag{margin-top:15px;font-size:12px;color:#9fb0ff;border-top:1px solid rgba(255,255,255,.1);padding-top:12px}
+  .rd-total{font-family:var(--serif);color:#c3c0b8;font-size:14px;text-align:center}
+  .rd-total b{color:#fff;font-size:19px;letter-spacing:1px}
+  #miniRadar{display:block;margin:8px auto 2px}
+  .rd-grades{display:flex;gap:7px;justify-content:center;margin:8px 0 12px}
+  .rd-grade{width:31px;height:31px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+    font-family:var(--serif);font-weight:700;color:#fff;font-size:15px}
+  .rd-note{font-size:12px;color:#9a9ea8;text-align:center;line-height:1.7}
+  .neutral-strip{margin-top:22px;font-size:12.5px;color:#8a8f98;border-top:1px solid rgba(255,255,255,.1);padding-top:15px}
+  .neutral-strip b{color:#c6d0ff}
+  .pyr-svg .slice{fill:#f4f2ec;stroke:#0c0d10;stroke-width:2;stroke-linejoin:round;cursor:pointer;transition:.2s}
+  .pyr-svg .slice:hover{fill:#fff}
+  .pyr-svg .slice.on{fill:var(--accent)}
+  .pyr-svg .slice-label{fill:var(--ink);font-size:28px;font-weight:800;font-family:var(--sans);pointer-events:none;transition:.2s}
+  .pyr-svg .slice-label.on{fill:#fff}
+  .pyr-svg .slice-num{fill:#a7a293;font-size:13px;font-family:var(--serif);pointer-events:none;transition:.2s}
+  .pyr-svg .slice-num.on{fill:#c6d0ff}
+  /* generic section */
+  section{padding:82px 0}
+  .sec-head{max-width:720px;margin-bottom:44px}
+  .sec-head h2{font-size:clamp(24px,3vw,34px);margin:12px 0 14px}
+  .sec-head p{font-size:16px;color:var(--sub)}
+  .alt{background:var(--paper2)}
+  .reveal{opacity:0;transform:translateY(18px);transition:opacity .7s ease,transform .7s ease}
+  .reveal.in{opacity:1;transform:none}
+  /* ---- model detail panel (dark) ---- */
+  .mpanel{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.13);border-radius:16px;
+    padding:20px 22px;min-height:358px}
+  .mpanel .p-title{color:#fff;font-size:16px;font-weight:700;margin:0 0 4px}
+  .mpanel .p-sub{color:#8a8f98;font-size:12.5px;margin-bottom:14px}
+  .ov-layer{border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;margin-bottom:10px;cursor:pointer;transition:.15s}
+  .ov-layer:hover{background:rgba(255,255,255,.06);border-color:#9fb0ff;transform:translateX(2px)}
+  .ov-head{display:flex;align-items:baseline;gap:8px}
+  .ov-num{font-family:var(--serif);color:#8f96ff;font-size:14px}
+  .ov-name{font-weight:700;color:#fff;font-size:16px}
+  .ov-en{font-family:var(--serif);font-style:italic;color:#8a8f98;font-size:12px}
+  .ov-dims{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .ov-dim{font-size:12px;color:#c3c0b8;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:3px 10px}
+  .p-back{background:none;border:none;color:#9fb0ff;cursor:pointer;font-size:12.5px;padding:0 0 10px}
+  .p-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .p-head h3{color:#fff;font-size:20px}
+  .p-num{font-family:var(--serif);color:#8f96ff;font-size:15px}
+  .p-en{font-family:var(--serif);font-style:italic;color:#8a8f98;font-size:12px}
+  .p-meta{font-size:12px;color:#9fa3ab;margin-top:5px}
+  .p-desc{color:#b7b4ad;font-size:13.5px;margin:10px 0 14px;line-height:1.65}
+  .p-label{font-size:11.5px;color:#8a8f98;letter-spacing:.04em;margin-bottom:8px}
+  .p-dims{display:flex;flex-direction:column;gap:8px}
+  .p-dim{text-align:left;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:10px;
+    padding:11px 14px;color:#e9e6dd;cursor:pointer;font-size:14px;font-weight:600;transition:.15s}
+  .p-dim:hover{background:var(--accent);border-color:var(--accent);color:#fff;transform:translateX(2px)}
+  .q-list{display:flex;flex-direction:column}
+  .q{display:flex;gap:10px;padding:9px 0;border-top:1px solid rgba(255,255,255,.08)}
+  .q:first-child{border-top:none}
+  .q .badge{margin-top:2px}
+  .q-name{color:#fff;font-size:13.5px;font-weight:600}
+  .q-name .vt{color:#ff9a9a;font-size:10px;border:1px solid #ff9a9a;border-radius:4px;padding:0 4px;margin-left:5px}
+  .q-anc{font-size:12px;color:#9a9ea8;margin-top:3px}
+  .q-anc b{color:#c6d0ff;font-family:var(--serif);margin-right:3px}
+  /* drawer */
+  .drawer{margin-top:26px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;min-height:150px;
+    box-shadow:0 1px 0 rgba(0,0,0,.02)}
+  .drawer .dh{display:flex;align-items:baseline;gap:12px;margin-bottom:4px}
+  .drawer .dh h3{font-size:20px}
+  .drawer .dh .layer{font-size:11px;color:#fff;background:var(--sub);border-radius:6px;padding:2px 8px;font-weight:600}
+  .drawer .dh .en{font-family:var(--serif);font-style:italic;color:var(--sub);font-size:13px}
+  .drawer .intro{color:var(--sub)}
+  .drawer .dimchips{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+  .drawer .dimchips button{background:var(--paper);border:1px solid var(--line);border-radius:20px;padding:6px 14px;
+    font-size:13px;cursor:pointer;color:var(--body);transition:.15s}
+  .drawer .dimchips button:hover{border-color:var(--accent);color:var(--accent)}
+  .drawer .dimchips button.sel{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .submetric{border-top:1px solid var(--line2);padding:11px 0;display:flex;gap:12px;align-items:flex-start}
+  .submetric:first-of-type{border-top:none}
+  .badge{font-size:10px;font-weight:800;color:#fff;border-radius:4px;padding:2px 5px;flex:none;margin-top:2px}
+  .badge.O{background:var(--o)}.badge.H{background:var(--h)}.badge.S{background:var(--s)}
+  .submetric .mtxt{flex:1}
+  .submetric .mtxt .mn{font-weight:600;color:var(--ink);font-size:14px}
+  .submetric .mtxt .mn .vt{color:var(--g-c);font-size:10.5px;font-weight:800;margin-left:6px;border:1px solid var(--g-c);
+    border-radius:4px;padding:0 4px}
+  .submetric .anc{font-size:12.5px;color:var(--sub);margin-top:3px}
+  .submetric .anc b{color:var(--ink);font-family:var(--serif);margin-right:3px}
+  /* rubric explainer cards */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+  .xcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px}
+  .xcard .k{font-family:var(--serif);font-size:22px;color:var(--accent);font-style:italic}
+  .xcard h4{margin:8px 0 6px;font-size:16px}
+  .xcard p{margin:0;font-size:13.5px;color:var(--sub)}
+  .scale-demo{display:flex;gap:6px;margin:12px 0 4px}
+  .scale-demo span{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+    font-family:var(--serif);font-weight:700;font-size:14px;border:1px solid var(--line);color:var(--sub)}
+  .scale-demo span.a5{background:var(--g-s);color:#fff;border-color:var(--g-s)}
+  .scale-demo span.a3{background:#fff;color:var(--ink);border-color:var(--ink)}
+  .scale-demo span.a1{background:var(--g-c);color:#fff;border-color:var(--g-c)}
+  .grades{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+  .grades .gr{flex:1;min-width:120px;border-radius:12px;padding:14px 16px;color:#fff}
+  .grades .gr .l{font-family:var(--serif);font-size:26px;font-weight:700}
+  .grades .gr .d{font-size:12px;opacity:.92}
+  /* anchor explorer */
+  .explorer{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px;margin-top:26px;
+    display:grid;grid-template-columns:230px 1fr;gap:22px}
+  @media(max-width:720px){.explorer{grid-template-columns:1fr}}
+  .explorer select{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:var(--paper)}
+  .explorer .out .an{display:flex;gap:12px;padding:12px 0;border-bottom:1px dashed var(--line2)}
+  .explorer .out .an:last-child{border-bottom:none}
+  .explorer .out .an .lv{font-family:var(--serif);font-weight:700;font-size:20px;width:34px;flex:none}
+  .explorer .out .an.l5 .lv{color:var(--g-s)}.explorer .out .an.l3 .lv{color:var(--ink)}.explorer .out .an.l1 .lv{color:var(--g-c)}
+  /* prompt cards */
+  .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+  .pcard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column}
+  .pcard .ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .pcard .qid{font-family:var(--serif);font-weight:700;font-size:15px;color:var(--accent)}
+  .pcard .tags{display:flex;gap:5px;flex-wrap:wrap}
+  .pcard .tag{font-size:10.5px;background:var(--paper2);color:var(--sub);border-radius:5px;padding:2px 7px}
+  .pcard .tag.diff{background:#fbf1e2;color:#b3720a}
+  .pcard .focus-lead{margin-bottom:12px}
+  .fl-label{font-family:var(--serif);font-style:italic;color:var(--accent);font-size:12px;letter-spacing:.04em}
+  .fl-text{font-weight:700;color:var(--ink);font-size:15.5px;line-height:1.4;margin-top:4px}
+  .pdivider{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--faint);margin:2px 0 8px}
+  .pdivider:before,.pdivider:after{content:"";height:1px;background:var(--line);flex:1}
+  .pcard .ptext{background:var(--paper);border:1px solid var(--line2);border-radius:9px;padding:10px 12px;
+    font-size:12px;color:var(--sub);white-space:pre-wrap;line-height:1.6;flex:1;font-family:var(--sans)}
+  .pcard .copy{margin-top:11px;align-self:flex-start;border:1px solid var(--line);background:#fff;border-radius:8px;
+    padding:7px 16px;font-size:12.5px;cursor:pointer;color:var(--accent)}
+  .pcard .copy:hover{background:var(--accent-soft)}
+  .redline{background:#fdf6ec;border:1px solid #f0dcbb;border-left:4px solid var(--s);border-radius:0 12px 12px 0;
+    padding:16px 20px;margin-top:26px}
+  .redline h4{margin:0 0 8px;color:#a8690a}
+  .redline ul{margin:0;padding-left:18px;font-size:13.5px;color:#6d5a3a}
+  .modes{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px}
+  @media(max-width:640px){.modes{grid-template-columns:1fr}}
+  .modes .m{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px}
+  .modes .m h4{font-size:16px;margin:0 0 8px}
+  .modes .m ul{margin:0;padding-left:18px;font-size:13px;color:var(--sub)}
+  .modes .m.soon{background:var(--paper2);border-style:dashed}
+  .soon-badge{font-size:11px;background:#fff4e0;color:#b3720a;border:1px solid #f0dcbb;border-radius:6px;
+    padding:1px 8px;font-weight:700;vertical-align:2px;margin-left:8px}
+  .handoff{text-align:center;margin-top:40px;padding:30px;background:var(--ink);border-radius:18px;color:#fff}
+  .handoff p{color:#b9bcc4;max-width:560px;margin:8px auto 20px}
+  /* ---- scorecard ---- */
+  .score-grid{display:grid;grid-template-columns:1fr 372px;gap:22px;align-items:start}
+  @media(max-width:920px){.score-grid{grid-template-columns:1fr}}
+  .scard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px}
+  .scard h3{font-size:15px;margin:0 0 12px}
+  .metaf{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+  .metaf label{display:block;font-size:11px;color:var(--sub);margin-bottom:3px}
+  .metaf input,.metaf select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:13px;background:var(--paper)}
+  #wtEdit{margin-top:12px}
+  .wt-note{font-size:11.5px;color:var(--sub);margin-bottom:8px}
+  .wt-note b{color:var(--ink)}
+  .wt-grid{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .wt-item{font-size:12px;color:var(--body);background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:5px 10px;display:inline-flex;align-items:center;gap:6px}
+  .wt-item b{color:var(--accent);font-family:var(--serif)}
+  .wt-item input{width:46px;padding:2px 5px;border:1px solid var(--line);border-radius:5px;font-size:12px}
+  .wt-sum{font-size:12px;color:var(--sub);margin-left:4px}
+  .wt-sum b{color:var(--ink);font-family:var(--serif)}
+  .dim{border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden;background:#fff}
+  .dim>.dbar{display:flex;justify-content:space-between;align-items:center;padding:11px 15px;background:var(--paper);
+    border-bottom:1px solid var(--line);cursor:pointer}
+  .dbar .dn{font-weight:600;font-size:14.5px}
+  .dbar .layer{font-size:10px;color:#fff;background:var(--sub);border-radius:5px;padding:1px 6px;margin-left:8px}
+  .dbar .dp{font-weight:700;font-family:var(--serif);font-size:17px}
+  .dbar .dp small{color:var(--sub);font-weight:400;font-size:10px;font-family:var(--sans)}
+  .dbar .dw{font-size:11px;color:var(--sub);background:var(--paper2);border-radius:5px;padding:1px 8px;margin-left:8px;font-variant-numeric:tabular-nums}
+  .subs{padding:3px 15px 9px}
+  .srow{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line2)}
+  .srow:last-child{border-bottom:none}
+  .srow .rn{flex:1;font-size:13px}
+  .srow .rn .vt{color:var(--g-c);font-size:10px;font-weight:800;margin-left:5px}
+  .abtn{width:19px;height:19px;flex:none;padding:0;border:1px solid var(--line);background:#fff;color:var(--accent);
+    border-radius:50%;cursor:pointer;font-size:12px;font-weight:700;line-height:17px;text-align:center}
+  .abtn:hover{background:var(--accent-soft);border-color:var(--accent)}
+  .abtn.open{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .scale{display:flex;gap:4px;flex:none}
+  .scale button{width:26px;height:26px;border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer;
+    font-size:12px;color:var(--sub);font-family:var(--serif)}
+  .scale button.on{background:var(--ink);color:#fff;border-color:var(--ink);font-weight:700}
+  .rowanc{display:none;background:#fbfaf5;border-left:3px solid var(--s);border-radius:0 7px 7px 0;
+    padding:7px 11px;margin:0 0 6px 26px;font-size:12px;color:#565a61}
+  .rowanc.show{display:block}
+  .rowanc span{display:block;padding:1px 0}
+  .rowanc b{font-family:var(--serif);margin-right:5px}
+  .rowanc .ra5 b{color:var(--g-s)}.rowanc .ra3 b{color:var(--ink)}.rowanc .ra1 b{color:var(--g-c)}
+  .panel{position:sticky;top:74px}
+  .score-big{text-align:center;padding:4px 0}
+  .score-big .num{font-family:var(--serif);font-size:52px;font-weight:700;line-height:1}
+  .score-big .cap{font-size:11px;color:var(--sub)}
+  .grade{display:inline-block;margin-top:8px;font-size:15px;font-weight:800;color:#fff;border-radius:8px;padding:3px 18px}
+  .g-S{background:var(--g-s)}.g-A{background:var(--g-a)}.g-B{background:var(--g-b)}.g-C{background:var(--g-c)}
+  .prog{font-size:11px;color:var(--sub);text-align:center;margin-top:8px}
+  canvas{display:block;margin:8px auto}
+  .dimlist .dl{display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0}
+  .dimlist .nm{width:56px;color:var(--body)}
+  .dimlist .bar{flex:1;height:7px;background:var(--line2);border-radius:4px;overflow:hidden}
+  .dimlist .bar i{display:block;height:100%;background:var(--accent)}.dimlist .bar i.dis{background:var(--g-c)}
+  .dimlist .pc{width:34px;text-align:right;color:var(--sub);font-family:var(--serif)}
+  .worst{background:#fdf2f2;border:1px solid #f5d0d0;border-radius:8px;padding:8px 11px;font-size:12px;margin-top:10px;color:#8a3a3a;display:none}
+  .worst.show{display:block}
+  .btns{display:flex;gap:8px;margin-top:12px}
+  .btns button{flex:1;padding:9px;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:8px;cursor:pointer;font-size:12.5px}
+  .btns button.ghost{background:#fff;color:var(--ink)}
+  .veto label{display:flex;gap:8px;font-size:12.5px;padding:5px 0;color:var(--body)}
+  .veto input{margin-top:3px}
+  textarea{width:100%;border:1px solid var(--line);border-radius:7px;padding:8px;font-size:12.5px;font-family:inherit;resize:vertical}
+  .legend{font-size:11px;color:var(--sub);margin-top:10px;line-height:1.7}
+  .legend .badge{display:inline-block;margin-right:2px}
+  /* footer */
+  footer{background:#141519;color:#8b8f98;padding:52px 0 40px;font-size:13px}
+  footer .wrap{display:flex;justify-content:space-between;gap:30px;flex-wrap:wrap}
+  footer b{color:#e9e6dd}
+  footer .col{max-width:340px}
+  footer a{color:#9fb0ff}
+  .print-head{display:none}
+  @media print{
+    /* 只导出评分卡结果报告(#s-score),其余全部隐藏 */
+    body{background:#fff}
+    nav,.pbar,#s-model,#s-rubric,#s-howto,footer{display:none!important}
+    #s-score .sec-head,.btns,.abtn,.rowanc{display:none!important}
+    #s-score{padding:0!important}
+    #s-score .wrap{max-width:none;padding:0}
+    .panel{position:static}
+    .reveal{opacity:1!important;transform:none!important}
+    .print-head{display:block;font-size:18px;font-weight:800;color:var(--ink);
+      border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:18px}
+    .print-head span{font-weight:400;color:var(--sub);font-size:14px;margin-left:8px}
+    .scard,.dim{break-inside:avoid}
+    .score-grid{grid-template-columns:1fr 320px}
+  }
+</style>
+</head>
+<body>
+<div class="pbar" id="pbar"></div>
+
+<nav>
+  <div class="wrap">
+    <div class="brand">明<b>鉴</b><small>生成式演示内容评估模型</small></div>
+    <div class="links">
+      <a href="#s-model" data-s="s-model">评估模型</a>
+      <a href="#s-rubric" data-s="s-rubric">评分标准</a>
+      <a href="#s-howto" data-s="s-howto">怎么测</a>
+      <a href="#s-score" data-s="s-score">开始评分</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ 开篇 · 评估方法论 + 倒金字塔模型 ============ -->
+<header class="hero-model" id="s-model">
+  <div class="wrap">
+    <h1>一套衡量 <span class="em">AI 生成的演示</span>好不好的 <span class="em2">评估模型</span></h1>
+    <p class="lead">公开中立评测基准，标准化衡量 AI 生成演示综合能力，看清三件事：评测维度模型、标准化打分规则、可视化等级结论；</p>
+
+    <div class="pipeline">
+      <div class="stage s1">
+        <div class="stage-h"><span class="sno">01</span><div><div class="st">评什么</div><div class="ss">维度模型</div></div></div>
+        <div class="pyr-wrap"><svg viewBox="0 0 600 540" class="pyr-svg" id="pyrSvg" role="img" aria-label="评估模型 · 倒金字塔"></svg></div>
+        <div class="dim-legend" id="dimLegend"></div>
+        <div class="stage-cap">三层 · 九维 · 40 条标准</div>
+      </div>
+
+      <div class="pipe-arrow">→</div>
+
+      <div class="stage s2">
+        <div class="stage-h"><span class="sno">02</span><div><div class="st">怎么打分</div><div class="ss">评分规则</div></div></div>
+        <ul class="rules">
+          <li><span class="ri">分</span><span><b>1–5 分锚点</b>　1 / 3 / 5 有明确文字标准,不靠拍脑袋</span></li>
+          <li><span class="ri">类</span><span><b>三类指标</b>　<span class="badge O">O</span> 客观 <span class="badge H">H</span> 半客观 <span class="badge S">S</span> 主观</span></li>
+          <li><span class="ri">✕</span><span><b>硬否决 · 一票封顶</b>　编造 / 张冠李戴 / 打不开</span></li>
+          <li><span class="ri">%</span><span><b>权重可调 · 4 档</b>　通用 / 采购 / 自媒体 / 技术,<b>公开透明</b></span></li>
+        </ul>
+        <div class="rules-tag">把"主观拍脑袋"压到最小,尽量客观、可复现</div>
+      </div>
+
+      <div class="pipe-arrow">→</div>
+
+      <div class="stage s3">
+        <div class="stage-h"><span class="sno">03</span><div><div class="st">得出什么</div><div class="ss">结论</div></div></div>
+        <div class="rd-total">加权总分 · <b>__</b> / 100</div>
+        <canvas id="miniRadar" width="184" height="164"></canvas>
+        <div class="rd-grades">
+          <span class="rd-grade" style="background:var(--g-s)">S</span>
+          <span class="rd-grade" style="background:var(--g-a)">A</span>
+          <span class="rd-grade" style="background:var(--g-b)">B</span>
+          <span class="rd-grade" style="background:var(--g-c)">C</span>
+        </div>
+        <div class="rd-note">九维雷达一眼见强弱<br>最差项 · 拒绝平均掩盖灾难</div>
+      </div>
+    </div>
+
+  </div>
+</header>
+
+<!-- ============ 评分标准说明 ============ -->
+<section class="alt" id="s-rubric">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-no">02 — THE RUBRIC</div>
+      <h2>评分标准:每一分怎么打,才不含糊</h2>
+      <p>可信的关键,是把主观拿捏压到最小:能测量的一律测量,需评审的一律给锚点。</p>
+    </div>
+
+    <div class="cards reveal">
+      <div class="xcard">
+        <div class="k">1–5</div>
+        <h4>五档锚点</h4>
+        <div class="scale-demo"><span class="a1">1</span><span>2</span><span class="a3">3</span><span>4</span><span class="a5">5</span></div>
+        <p>每条标准打 1–5 分,1 / 3 / 5 有明确文字锚点,2 / 4 为相邻档插值。</p>
+      </div>
+      <div class="xcard">
+        <div class="k">O·H·S</div>
+        <h4>三类指标</h4>
+        <p style="margin-bottom:8px"><span class="badge O">O</span> 客观可测 &nbsp;<span class="badge H">H</span> 半客观 &nbsp;<span class="badge S">S</span> 主观</p>
+        <p>客观项(时延、导出、成本…)有可测口径;主观项配锚点 + 多人盲评,减少"拿捏"空间。</p>
+      </div>
+      <div class="xcard">
+        <div class="k">✕</div>
+        <h4>硬否决:一票封顶</h4>
+        <p>编造事实、配图张冠李戴、PPT打不开、私有场景数据出域 —— 触发任一条,整份评级直接封顶C。</p>
+      </div>
+      <div class="xcard">
+        <div class="k">◎</div>
+        <h4>双报告 · 拒绝平均掩盖灾难</h4>
+        <p>总分与评级+九维雷达 + 最差项。任一维度低于 60% 标红为"灾难维度"。</p>
+      </div>
+    </div>
+
+    <div style="margin-top:26px" class="reveal">
+      <h3 style="font-size:16px;margin-bottom:10px">评级由总分与"无硬否决 · 无灾难维度"共同决定</h3>
+      <div class="grades">
+        <div class="gr" style="background:var(--g-s)"><div class="l">S</div><div class="d">≥90 且无硬否决且无灾难维度</div></div>
+        <div class="gr" style="background:var(--g-a)"><div class="l">A</div><div class="d">80–89 且无硬否决</div></div>
+        <div class="gr" style="background:var(--g-b)"><div class="l">B</div><div class="d">65–79 且无硬否决</div></div>
+        <div class="gr" style="background:var(--g-c)"><div class="l">C</div><div class="d">&lt;65 或触发任一硬否决</div></div>
+      </div>
+    </div>
+
+    <div class="explorer reveal">
+      <div>
+        <h3 style="font-size:15px;margin-bottom:8px">锚点浏览器</h3>
+        <p style="font-size:13px;color:var(--sub);margin-bottom:12px">任选一条标准,看它 5 / 3 / 1 分别长什么样。</p>
+        <select id="ancSel"></select>
+      </div>
+      <div class="out" id="ancOut"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 怎么测 · 公开题集 ============ -->
+<section id="s-howto">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-no">03 — HOW TO TEST</div>
+      <h2>测什么:一套公开的分层题集</h2>
+      <p>结论要中立,就必须给<b>所有工具投喂完全相同的提示词，任何人可复评。<b>建议:先拿下面的题去各家跑一遍,再回来打分。</b></p>
+    </div>
+
+    <div class="pgrid reveal" id="promptGrid"></div>
+
+    <div class="redline reveal">
+      <h4>公平性红线</h4>
+      <ul>
+        <li>不为任一工具改写提示词、不额外投喂提示、不挑对某家有利的题。</li>
+        <li>强时效题的检索窗口对所有工具一致;离线/私有化工具若不支持联网,在该题<b>如实记 0,不隐藏其短板、也不在别处补偿</b>。</li>
+        <li>评测者须披露与被测工具的利益关系;利益相关方评分须与独立评分交叉核对。</li>
+      </ul>
+    </div>
+
+    <div class="modes reveal">
+      <div class="m"><h4>模式 A · 快速人工版</h4>
+        <ul><li>1 人 · 约 30–60 分钟/工具</li><li>抽 3–6 题,覆盖 ≥3 种体裁</li><li>现场记客观项 + 逐维打分</li><li>如实标注:单人、非盲、主观</li></ul></div>
+      <div class="m soon"><h4>模式 B · 严谨复现版 <span class="soon-badge">待上线</span></h4>
+        <ul><li>全量同题同词 + 盲评</li><li>每样本 ≥2 人独立评分 + 仲裁</li><li>报告评分者一致性 ρ(≥0.7 可信)</li><li>题集/每项分/工具版本全公开可复现</li></ul></div>
+    </div>
+
+    <div class="handoff reveal">
+      <h3 style="color:#fff;font-size:22px">跑完测试了?把它变成分数。</h3>
+      <p></p>
+      <a class="btn primary" href="#s-score" style="background:#fff;color:var(--ink)">进入评分卡 ↓</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 开始评分 ============ -->
+<section class="alt" id="s-score">
+  <div class="wrap">
+    <div class="print-head">明鉴 · AI 生成演示 · 评估报告<span id="printTool"></span></div>
+    <div class="sec-head reveal">
+      <div class="sec-no">04 — SCORE IT</div>
+      <h2>开始评分</h2>
+      <p>填分即实时出总分、九维雷达、S/A/B/C 评级与最差项。可切换权重档，全程离线,数据不出你的浏览器。</p>
+    </div>
+
+    <div class="scard reveal">
+      <h3>评测信息</h3>
+      <div class="metaf">
+        <div><label>被测工具</label><input id="m_tool" placeholder="如 Genspark / 豆包 / AiPPT"></div>
+        <div><label>版本 / 日期</label><input id="m_ver" placeholder="版本或评测日期"></div>
+        <div><label>评测者</label><input id="m_by" placeholder="姓名 / 机构"></div>
+        <div><label>利益关系声明</label><input id="m_coi" placeholder="无则填「无」"></div>
+        <div><label>题集编号</label><input id="m_q" placeholder="如 OPES-Q01"></div>
+        <div><label>模式</label><select id="m_mode"><option>A 快速人工版</option><option>B 严谨复现版</option></select></div>
+        <div><label>是否盲评</label><select id="m_blind"><option>否</option><option>是</option></select></div>
+        <div><label>权重档</label><select id="profile">
+          <option value="通用横评">通用横评</option><option value="自媒体·体验向">自媒体·体验向</option>
+          <option value="企业·采购向">企业·采购向</option><option value="技术·复现向">技术·复现向</option>
+          <option value="自定义">自定义（可编辑）</option></select></div>
+      </div>
+      <div id="wtEdit" style="font-size:11.5px;color:var(--sub);margin-top:10px;display:none"></div>
+    </div>
+
+    <div class="score-grid">
+      <div id="dims"></div>
+      <div class="panel">
+        <div class="scard">
+          <h3>实时结果</h3>
+          <div class="score-big">
+            <div class="num" id="totalNum">—</div>
+            <div class="cap">加权总分 / 100 · <span id="profName">通用横评</span></div>
+            <div><span class="grade g-C" id="gradeBadge">—</span></div>
+          </div>
+          <div class="prog" id="prog">已评 0 / 40 子指标</div>
+          <canvas id="radar" width="340" height="300"></canvas>
+          <div class="dimlist" id="dimList"></div>
+          <div class="worst" id="worstBox"></div>
+          <div class="btns">
+            <button onclick="doPrint()">导出/打印</button>
+            <button class="ghost" onclick="exportJSON()">导出数据</button>
+            <button class="ghost" onclick="resetAll()">重置</button>
+          </div>
+          <div class="legend"><span class="badge O">O</span>客观 <span class="badge H">H</span>半客观 <span class="badge S">S</span>主观，
+            硬否决封顶C，&lt;60%标红为灾难</div>
+        </div>
+        <div class="scard veto">
+          <h3>一票否决</h3>
+          <label><input type="checkbox" class="vetoChk" data-k="1.1"><span><b>内容 1.1</b> 编造事实/数据造假/严重曲解源材料</span></label>
+          <label><input type="checkbox" class="vetoChk" data-k="2.4"><span><b>配图 2.4</b> 张冠李戴/严重误导</span></label>
+          <label><input type="checkbox" class="vetoChk" data-k="6.1"><span><b>交付 6.1</b> 打不开/大面积崩坏/无法使用</span></label>
+          <label><input type="checkbox" class="vetoChk" data-k="8.1"><span><b>数据 8.1</b> 声称私有却数据出域(私有化/合规场景)</span></label>
+        </div>
+        <div class="scard">
+          <h3>最差页 / 最差 case</h3>
+          <textarea id="worstNote" rows="3" placeholder="记下拖后腿的具体页面或 case"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="col">
+      <div style="font-weight:800;color:#e9e6dd;font-size:15px;margin-bottom:8px">明鉴v0.1</div>
+      <p>一把公开、中立、可复现的尺子,用于评估 AI 生成演示的质量。允许任何人引用、改编、复评。</p>
+    </div>
+    <div class="col">
+      <p><b>中立承诺</b><br>标准公开可改;评测者须披露利益关系;</p>
+      <p style="margin-top:8px">开源仓库:<a href="https://github.com/ztongw-ai/opes" style="color:inherit">github.com/ztongw-ai/opes</a> · CC BY 4.0</p>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* ===== 数据:三层九维 · 40 子指标 · 逐项锚点 ===== */
+const RUBRIC=[
+ {id:1,name:'内容质量',en:'Content',layer:'成品力',desc:'说得对不对、透不透、有没有价值',subs:[
+   {id:'1.1',name:'事实准确性',type:'O',veto:1,a5:'关键事实/数据/引用零错、可溯源',a3:'无硬伤，个别细节存疑或来源不明',a1:'明确事实错误或数据造假（硬否决）'},
+   {id:'1.2',name:'结构与逻辑',type:'H',a5:'主线清晰、分点不重不漏、论证链成立',a3:'结构成立但有重叠/跳跃/凑数',a1:'无主线、逻辑断裂、堆砌'},
+   {id:'1.3',name:'信息密度（高度）',type:'S',a5:'提炼到位：观点+必要支撑，不多不少',a3:'偏文档搬运或偏空洞，密度失衡',a1:'整段照搬，或空到无实质内容'},
+   {id:'1.4',name:'洞察与价值',type:'S',a5:'有超出复述的观点/结论/so what',a3:'正确但平淡，多为常识陈述',a1:'正确的废话，无任何增量'},
+   {id:'1.5',name:'意图忠实度',type:'H',a5:'紧扣用户真正的题、覆盖关键要求',a3:'主题贴合但漏关键点或偏移',a1:'跑题、答非所问'}]},
+ {id:2,name:'视觉设计',en:'Visual',layer:'成品力',desc:'看上去好不好、专不专业',subs:[
+   {id:'2.1',name:'美感与专业度',type:'S',a5:'观感专业、风格成立、有设计感',a3:'干净但普通，模板感',a1:'廉价/杂乱/审美不过关'},
+   {id:'2.2',name:'版式与层级',type:'H',a5:'对齐、留白、字号层级清晰易读',a3:'基本规整，局部拥挤或层级弱',a1:'混乱、无层级、难读'},
+   {id:'2.3',name:'风格一致性',type:'H',a5:'全篇配色/字体/间距/组件统一',a3:'大体一致，个别页出戏',a1:'每页各自为政'},
+   {id:'2.4',name:'配图与图表准确性',type:'H',veto:1,a5:'图表/配图精准对应、可视化正确',a3:'基本相关，个别牵强/次要误差',a1:'张冠李戴或数据误导（硬否决）'},
+   {id:'2.5',name:'无低级瑕疵',type:'O',a5:'全篇零瑕疵',a3:'零星 2–3 处不影响阅读',a1:'溢出/截断/重叠/占位符明显'}]},
+ {id:3,name:'表达适配',en:'Fit',layer:'成品力',desc:'是"能上台讲"的演示,而非好看的网页/文档',subs:[
+   {id:'3.1',name:'单页信息负载',type:'H',a5:'一页一核心、可被讲，非文档页',a3:'部分页偏满、更像图文文档',a1:'满屏文字、无法演示'},
+   {id:'3.2',name:'叙事节奏',type:'S',a5:'有开场/推进/收束、章节节奏',a3:'平铺直叙，节奏平',a1:'无节奏、堆页'},
+   {id:'3.3',name:'场景/受众适配',type:'S',a5:'贴合体裁与受众语气、正式度',a3:'大致合适，语气/正式度偏差',a1:'明显不匹配场景'},
+   {id:'3.4',name:'呈现距离可读性',type:'O',a5:'关键信息在演示距离下清晰可读',a3:'部分页字号偏小',a1:'大量文档级小字，投屏难读'}]},
+ {id:4,name:'交互与可控',en:'Control',layer:'生成力',desc:'懂不懂我、好不好上手、能不能改到我要的',subs:[
+   {id:'4.1',name:'需求理解与澄清',type:'S',a5:'读懂 brief，必要时智能追问',a3:'大体理解，含糊处直接假设',a1:'误解需求、方向跑偏'},
+   {id:'4.2',name:'易上手',type:'S',a5:'无需教程即可产出第一版',a3:'需摸索或看说明才会用',a1:'上手困难、劝退'},
+   {id:'4.3',name:'可干预/可控',type:'H',a5:'可指定风格/结构/品牌，支持局部重生成',a3:'能改但粒度粗，多为整体重来',a1:'无法有效干预'},
+   {id:'4.4',name:'修改成本',type:'H',a5:'局部编辑、改一处不动全篇',a3:'改动需重跑局部、代价中等',a1:'改一处须重跑全篇'}]},
+ {id:5,name:'效率',en:'Speed',layer:'生成力',desc:'快不快、一次成不成、稳不稳',subs:[
+   {id:'5.1',name:'生成时延',type:'O',a5:'≤60s 出首版可用稿',a3:'1–5 min',a1:'>10 min 或失败'},
+   {id:'5.2',name:'一次成型率',type:'H',a5:'首版即达可用、几乎不用改',a3:'首版可用但需一两处调整',a1:'首版基本不可用'},
+   {id:'5.3',name:'返工次数',type:'O',a5:'0 轮（首版即用）',a3:'2 轮达可接受',a1:'≥5 轮仍不达标'},
+   {id:'5.4',name:'过程稳定性',type:'O',a5:'全程无异常',a3:'偶发 1 次可恢复卡顿',a1:'崩溃/超时/半途失败需重来'}]},
+ {id:6,name:'交付与可移交',en:'Handoff',layer:'生成力',desc:'拿到手能不能真的编辑、导出、上台、嵌入',subs:[
+   {id:'6.1',name:'二次可编辑性',type:'O',veto:1,a5:'在线编辑器+导出可编辑 PPTX',a3:'仅 HTML 源码级改 或 仅导出 PDF/图片',a1:'只能看、无法编辑；打不开则硬否决'},
+   {id:'6.2',name:'导出与兼容',type:'O',a5:'PPTX/PDF/PNG/HTML 齐全且不走样',a3:'部分格式，或导出轻微走样',a1:'无导出或严重走样'},
+   {id:'6.3',name:'演讲态可用',type:'O',a5:'全屏+演讲者视图+备注+离线',a3:'仅全屏放映',a1:'无放映态'},
+   {id:'6.4',name:'嵌入/分享/协作',type:'O',a5:'链接+嵌入 OA+多人协作',a3:'仅链接分享',a1:'无'},
+   {id:'6.5',name:'无锁定',type:'O',a5:'内容可完整导出为开放格式带走',a3:'部分可带出',a1:'绑死平台、无法迁出'}]},
+ {id:7,name:'稳定与一致性',en:'Reliability',layer:'可信力',desc:'换个题、批量做,还稳不稳、一不一致',subs:[
+   {id:'7.1',name:'跨主题稳定',type:'H',a5:'换不同题材/体裁质量不塌方',a3:'主力题材稳、偏门下滑',a1:'挑食、换题即崩'},
+   {id:'7.2',name:'批量一致性',type:'H',a5:'大批量产出品牌/风格一致',a3:'多数一致，偶有跳风格',a1:'每份风格漂移'},
+   {id:'7.3',name:'失败下限',type:'O',a5:'最差 case 仍合格（≥B）',a3:'最差 case 勉强能用、需大改',a1:'存在完全不可用的翻车 case'},
+   {id:'7.4',name:'可复现性',type:'O',a5:'同词多次跑质量方差极小',a3:'有波动但评级档位不变',a1:'看运气、档位跳变'}]},
+ {id:8,name:'数据·安全·合规',en:'Trust',layer:'可信力',desc:'数据去哪、能不能私有部署、合不合规',subs:[
+   {id:'8.1',name:'数据流向与隐私',type:'O',veto:1,a5:'可完全不出域 / 可关闭留存与训练',a3:'出域但有企业级隐私承诺、可签 DPA',a1:'必然外发不可关；私有场景谎称不外泄（硬否决）'},
+   {id:'8.2',name:'私有化/本地部署',type:'O',a5:'支持 on-prem / VPC / 离线',a3:'私有云单租户托管',a1:'仅公有 SaaS'},
+   {id:'8.3',name:'合规与信创适配',type:'O',a5:'合规资质齐 + 信创软硬件适配',a3:'部分具备',a1:'无'},
+   {id:'8.4',name:'品牌与内容管控',type:'H',a5:'品牌锁定+模板治理+内容审核',a3:'有基础模板/审核',a1:'无管控'},
+   {id:'8.5',name:'权限与审计',type:'O',a5:'细粒度权限+完整审计日志',a3:'基础账号权限',a1:'无'}]},
+ {id:9,name:'成本与规模',en:'Cost',layer:'可信力',desc:'单份多少钱、能不能规模化、协作贵不贵',subs:[
+   {id:'9.1',name:'单份成本',type:'O',a5:'显著低于同类中位',a3:'处于中位',a1:'显著高于中位'},
+   {id:'9.2',name:'规模化经济性',type:'H',a5:'全员铺开边际成本低',a3:'边际成本一般',a1:'规模化即贵'},
+   {id:'9.3',name:'协作与团队能力',type:'O',a5:'席位+共享素材库+团队工作流',a3:'基础多账号',a1:'纯个人、无团队能力'},
+   {id:'9.4',name:'可及性',type:'H',a5:'免费额度充足、起步零门槛',a3:'有限免费、需注册',a1:'高门槛、付费墙'}]},
+];
+const DIM_SHORT=['内容','视觉','表达','交互','效率','交付','稳定','数据安全','成本'];
+const LAYERS=[
+ {name:'成品力',en:'The Artifact',dims:[1,2,3],aud:'C 端普通用户 · 所有人最先看见',role:'表层结果',desc:'做出来的成品好不好——内容说得透不透、视觉专不专业、能不能真的上台讲。'},
+ {name:'生成力',en:'The Process',dims:[4,5,6],aud:'深度使用者才会感知',role:'中间过程',desc:'得到它的过程顺不顺——懂不懂你、快不快、能不能改、拿到手能不能真用起来。'},
+ {name:'可信力',en:'Trust & Fit',dims:[7,8,9],aud:'B 端采购决策',role:'底层根基',desc:'能否放心地规模化采用——换题稳不稳、数据去哪、私有可不可行、成本与规模。'}];
+const CELLS={1:'内容质量',2:'视觉设计',3:'表达适配',4:'交互可控',5:'效率',6:'交付可移交',7:'稳定一致性',8:'数据安全合规',9:'成本规模'};
+const PROFILES={'通用横评':[20,15,10,10,10,10,10,8,7],'自媒体·体验向':[15,25,10,10,15,5,10,0,10],
+ '企业·采购向':[20,10,10,7,5,10,13,15,10],'技术·复现向':[20,12,8,8,12,10,18,7,5],'自定义':[20,15,10,10,10,10,10,8,7]};
+const PROMPTS=[
+ {id:'Q01',g:'商业路演',i:'一句话命题',d:'常规',f:'无信息时的选题/结构/惊艳度',t:'帮我做一份面向投资人的融资路演 PPT，主题是"面向中小餐饮的 AI 智能排班 SaaS"，A 轮，约 12 页。要有问题、方案、市场、商业模式、竞争、团队、财务预测、融资用途。'},
+ {id:'Q02',g:'工作汇报',i:'详细 brief',d:'常规',f:'忠实需求、要点覆盖、正式度',t:'帮我做一份 2026 上半年市场部工作总结汇报，向公司管理层汇报，约 10 页。包含：三个核心目标完成情况（获客成本降 18%、私域增长 40 万、品牌搜索指数 +25%）、三个项目复盘、两个主要问题及对策、下半年规划与资源需求。风格正式、数据说话，适合投屏。'},
+ {id:'Q03',g:'教学课件',i:'一句话命题',d:'常规',f:'讲授逻辑、单页负载、可读性',t:'帮我做一节面向高中生的物理课件 PPT，讲"牛顿第二定律"，约 15 页，要有概念引入、公式推导、生活实例、典型例题、课堂小结。语言通俗，一页讲一个点。'},
+ {id:'Q04',g:'产品发布',i:'详细 brief',d:'常规',f:'叙事节奏、视觉惊艳、能上台讲',t:'帮我做一份新品发布会 PPT，产品是主打"超长续航+隐私安全"的国产旗舰手机，面向发布会大屏，约 14 页。要有悬念开场、痛点、核心卖点（续航 3 天/端侧隐私芯片/影像升级）、参数、价格、上市信息、金句收尾。视觉有冲击力、大字少字。'},
+ {id:'Q05',g:'数据报告',i:'数据表转 PPT',d:'复杂数据可视化',f:'图表选型正确性、数据可视化',t:'根据我上传的销售数据表，做一份季度经营分析 PPT，约 8 页。要有整体概览、分区域对比、分品类趋势、同比环比、异常洞察与建议。图表要选对类型、标注清晰、不误导。【附：附件A-季度销售数据.csv】'},
+ {id:'Q06',g:'个人分享',i:'一句话命题',d:'常规',f:'语气适配、轻松感、审美',t:'帮我做一份朋友聚会上分享的旅行 PPT，主题"一个人的冰岛环岛 10 天"，约 12 页，轻松、有故事感、图文并茂，像在讲故事而不是做报告。'},
+ {id:'Q07',g:'商业路演',i:'长文档转 PPT',d:'强源材料忠实',f:'提炼不失真、不编造',t:'把我上传的商业计划书（约 6000 字）浓缩成一份 12 页的路演 PPT。只能用文档里的事实与数据，不许编造或夸大；文档没有的内容不要自己补。【附：附件B-商业计划书.md】'},
+ {id:'Q08',g:'工作汇报',i:'输入即大纲',d:'常规',f:'忠实执行给定大纲、不擅自增删',t:'按我给的大纲原样做成 PPT，不要增删章节、不要改变顺序，每个二级标题一页：一、项目背景 二、目标与范围 三、里程碑进度（M1已完成/M2进行中/M3未启动）四、风险与应对 五、资源需求 六、下一步计划'},
+ {id:'Q09',g:'教学课件',i:'长文档转 PPT',d:'强源材料忠实',f:'长文压缩+受众改写+忠实',t:'把我上传的科普长文改写成一份面向初中生的课件 PPT，约 12 页，保持文中事实准确，用词更通俗，配合适的示意，一页一个知识点。【附：附件C-科普长文.md】'},
+ {id:'Q10',g:'数据报告',i:'详细 brief',d:'强时效',f:'联网检索最新数据、时效准确',t:'做一份"截至评测当日、最近一个季度中国新能源汽车市场"的数据简报 PPT，约 8 页，包含最新销量、品牌份额、增速、出口、趋势判断。数据要联网查最新的，标注来源与时间。'},
+ {id:'Q11',g:'产品发布',i:'一句话命题',d:'强时效',f:'检索行业最新动态并成稿',t:'做一份"当前 AI 编程助手赛道最新格局"的分享 PPT，约 10 页，涵盖截至评测当日的主流产品、最新能力进展、价格与差异。信息要新、要有出处。'},
+ {id:'Q12',g:'数据报告',i:'数据表转 PPT',d:'复杂数据可视化',f:'多类图表选型、避免误导',t:'根据上传的多维数据表，做一份 8 页数据洞察 PPT：体现"构成（占比）、趋势（时间序列）、对比（分组）、相关（两变量关系）"四类分析，每类选恰当图表，避免 3D 饼图等误导性图形，标题写结论而非描述。【附：附件D-多维数据.csv】'},
+];
+const scores={};
+let weights=PROFILES['通用横评'].slice();
+const dim=id=>RUBRIC.find(d=>d.id===id);
+
+/* ===== 倒金字塔理论模型(SVG) + 三级下钻 ===== */
+const SVGNS='http://www.w3.org/2000/svg';
+const PYR=[  // 无缝连续切片:相邻切片共用边→外轮廓是两条直线;层名居中坐标 / 编号坐标
+ {pts:'30,44 570,44 479.811,203 120.189,203', lx:300,ly:132,ny:101},
+ {pts:'120.189,203 479.811,203 389.622,362 210.378,362', lx:300,ly:290,ny:259},
+ {pts:'210.378,362 389.622,362 300,520', lx:300,ly:421,ny:394},
+];
+function buildModel(){
+  const svg=document.getElementById('pyrSvg');
+  if(svg){svg.innerHTML='';
+    LAYERS.forEach((ly,i)=>{
+      const p=document.createElementNS(SVGNS,'polygon');
+      p.setAttribute('points',PYR[i].pts);p.setAttribute('class','slice');p.setAttribute('data-li',i);
+      p.addEventListener('mouseenter',()=>setActive(i));p.addEventListener('mouseleave',()=>setActive(-1));svg.appendChild(p);
+    });
+    LAYERS.forEach((ly,i)=>{
+      const n=document.createElementNS(SVGNS,'text');n.setAttribute('x',PYR[i].lx);n.setAttribute('y',PYR[i].ny);
+      n.setAttribute('class','slice-num');n.setAttribute('data-li',i);n.setAttribute('text-anchor','middle');n.textContent='0'+(i+1);svg.appendChild(n);
+      const t=document.createElementNS(SVGNS,'text');t.setAttribute('x',PYR[i].lx);t.setAttribute('y',PYR[i].ly);
+      t.setAttribute('class','slice-label');t.setAttribute('data-li',i);t.setAttribute('text-anchor','middle');t.textContent=ly.name;svg.appendChild(t);
+    });
+  }
+  const lg=document.getElementById('dimLegend');
+  if(lg)lg.innerHTML=LAYERS.map((ly,i)=>`<div class="lg-row" data-li="${i}" onmouseenter="setActive(${i})" onmouseleave="setActive(-1)">
+    <span class="lg-name">${ly.name}</span><span class="lg-dims">${ly.dims.map(id=>CELLS[id]).join(' · ')}</span></div>`).join('');
+}
+function setActive(i){
+  document.querySelectorAll('#pyrSvg .slice, #pyrSvg .slice-label, #pyrSvg .slice-num')
+    .forEach(el=>el.classList.toggle('on',+el.getAttribute('data-li')===i));
+  document.querySelectorAll('.lg-row').forEach(r=>r.classList.toggle('on',+r.getAttribute('data-li')===i));
+}
+function drawMiniRadar(){
+  const cv=document.getElementById('miniRadar');if(!cv)return;const ctx=cv.getContext('2d');
+  const W=cv.width,H=cv.height,cx=W/2,cy=H/2,R=62,N=9,ang=i=>-Math.PI/2+i*2*Math.PI/N;
+  const val=[0.92,0.8,0.72,0.68,0.6,0.7,0.86,0.62,0.78];ctx.clearRect(0,0,W,H);
+  for(let g=1;g<=3;g++){ctx.beginPath();for(let i=0;i<N;i++){const r=R*g/3,x=cx+r*Math.cos(ang(i)),y=cy+r*Math.sin(ang(i));i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.closePath();ctx.strokeStyle='rgba(255,255,255,.14)';ctx.stroke();}
+  for(let i=0;i<N;i++){ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+R*Math.cos(ang(i)),cy+R*Math.sin(ang(i)));ctx.strokeStyle='rgba(255,255,255,.09)';ctx.stroke();}
+  ctx.beginPath();val.forEach((v,i)=>{const r=R*v,x=cx+r*Math.cos(ang(i)),y=cy+r*Math.sin(ang(i));i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.closePath();
+  ctx.fillStyle='rgba(47,95,224,.30)';ctx.fill();ctx.strokeStyle='#6c86f0';ctx.lineWidth=1.6;ctx.stroke();
+}
+
+/* ===== 锚点浏览器 ===== */
+function buildExplorer(){
+  const sel=document.getElementById('ancSel');
+  RUBRIC.forEach(d=>{const og=document.createElement('optgroup');og.label=d.id+' '+d.name;
+    d.subs.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=`${s.id} ${s.name}（${s.type}）`;og.appendChild(o);});
+    sel.appendChild(og);});
+  sel.onchange=()=>renderAnc(sel.value);renderAnc('1.1');
+}
+function renderAnc(id){
+  const s=RUBRIC.flatMap(d=>d.subs).find(x=>x.id===id);
+  document.getElementById('ancOut').innerHTML=`
+    <div class="an l5"><span class="lv">5</span><span>${s.a5}</span></div>
+    <div class="an l3"><span class="lv">3</span><span>${s.a3}</span></div>
+    <div class="an l1"><span class="lv">1</span><span>${s.a1}</span></div>`;
+}
+
+/* ===== 题集卡片 ===== */
+function buildPrompts(){
+  const g=document.getElementById('promptGrid');
+  PROMPTS.forEach(p=>{
+    const c=document.createElement('div');c.className='pcard';
+    c.innerHTML=`<div class="ph"><span class="qid">${p.id}</span>
+      <span class="tags"><span class="tag">${p.g}</span><span class="tag">${p.i}</span><span class="tag diff">${p.d}</span></span></div>
+      <div class="focus-lead"><div class="fl-label">考察什么</div><div class="fl-text">${p.f}</div></div>
+      <div class="pdivider"><span>题目提示词(可直接复制投喂)</span></div>
+      <div class="ptext">${p.t}</div>
+      <button class="copy">复制提示词</button>`;
+    c.querySelector('.copy').onclick=e=>{navigator.clipboard&&navigator.clipboard.writeText(p.t);
+      e.target.textContent='已复制';setTimeout(()=>e.target.textContent='复制提示词',1200);};
+    g.appendChild(c);
+  });
+}
+
+/* ===== 评分卡 ===== */
+function buildDims(){
+  const host=document.getElementById('dims');
+  RUBRIC.forEach((d,di)=>{
+    const el=document.createElement('div');el.className='dim';
+    el.innerHTML=`<div class="dbar" onclick="toggleDim(${di})">
+        <div><span class="dn">${d.id} ${d.name}</span><span class="layer">${d.layer}</span><span class="dw" id="dw_${d.id}">权重 ${weights[di]}</span></div>
+        <div class="dp" id="dp_${d.id}">—<small> /100</small></div></div><div class="subs" id="sub_${di}"></div>`;
+    host.appendChild(el);
+    const sh=el.querySelector('#sub_'+di);
+    d.subs.forEach(s=>{
+      const row=document.createElement('div');row.className='srow';
+      row.innerHTML=`<span class="badge ${s.type}">${s.type}</span>
+        <span class="rn">${s.id} ${s.name}${s.veto?'<span class="vt">否决</span>':''}</span>
+        <button class="abtn" onclick="toggleRowAnc('${s.id}',this)" title="查看评分锚点(1/3/5)">?</button>
+        <span class="scale">${[1,2,3,4,5].map(n=>`<button onclick="setScore('${s.id}',${n})" id="b_${s.id}_${n}">${n}</button>`).join('')}</span>`;
+      sh.appendChild(row);
+      const a=document.createElement('div');a.className='rowanc';a.id='ra_'+s.id;
+      a.innerHTML=`<span class="ra5"><b>5</b> ${s.a5}</span><span class="ra3"><b>3</b> ${s.a3}</span><span class="ra1"><b>1</b> ${s.a1}</span>`;sh.appendChild(a);
+    });
+  });
+}
+function toggleDim(di){const e=document.getElementById('sub_'+di);e.style.display=e.style.display==='none'?'block':'none';}
+function toggleRowAnc(id,btn){
+  const el=document.getElementById('ra_'+id);const willOpen=!el.classList.contains('show');
+  document.querySelectorAll('.rowanc.show').forEach(x=>x.classList.remove('show'));
+  document.querySelectorAll('.abtn.open').forEach(b=>b.classList.remove('open'));
+  if(willOpen){el.classList.add('show');if(btn)btn.classList.add('open');}
+}
+function setScore(id,n){scores[id]=(scores[id]===n)?undefined:n;
+  for(let k=1;k<=5;k++)document.getElementById(`b_${id}_${k}`).classList.toggle('on',scores[id]===k);recompute();}
+function dimPct(d){const r=d.subs.map(s=>scores[s.id]).filter(v=>v!=null);return r.length?r.reduce((a,b)=>a+b,0)/r.length/5*100:null;}
+function recompute(){
+  let wsum=0,acc=0,rated=0,disaster=false,worst=[];
+  RUBRIC.forEach((d,i)=>{const p=dimPct(d);
+    document.getElementById('dp_'+d.id).innerHTML=(p==null?'—':Math.round(p))+'<small> /100</small>';
+    const dw=document.getElementById('dw_'+d.id);if(dw)dw.textContent='权重 '+weights[i];
+    if(p!=null){acc+=p*weights[i];wsum+=weights[i];if(p<60){disaster=true;worst.push(d.name);}}
+    d.subs.forEach(s=>{if(scores[s.id]!=null)rated++;});});
+  const total=wsum?acc/wsum:null;
+  document.getElementById('totalNum').textContent=total==null?'—':Math.round(total);
+  document.getElementById('prog').textContent=`已评 ${rated} / 40 子指标`+(rated<40?'（初步）':'（完整）');
+  const veto=[...document.querySelectorAll('.vetoChk')].some(c=>c.checked)||RUBRIC.some(d=>d.subs.some(s=>s.veto&&scores[s.id]===1));
+  let g='—';
+  if(total!=null){if(veto)g='C';else if(total>=90&&!disaster)g='S';else if(total>=80)g='A';else if(total>=65)g='B';else g='C';}
+  const gb=document.getElementById('gradeBadge');gb.textContent=g;gb.className='grade g-'+(g==='—'?'C':g);
+  const dl=document.getElementById('dimList');dl.innerHTML='';
+  RUBRIC.forEach((d,i)=>{const p=dimPct(d);
+    dl.innerHTML+=`<div class="dl"><span class="nm">${DIM_SHORT[i]}</span>
+      <span class="bar"><i class="${p!=null&&p<60?'dis':''}" style="width:${p==null?0:p}%"></i></span>
+      <span class="pc">${p==null?'—':Math.round(p)}</span></div>`;});
+  const msgs=[];if(veto)msgs.push('⚠ 触发硬否决 → 评级封顶 C');if(worst.length)msgs.push('灾难维度(<60%)：'+worst.join('、'));
+  const wb=document.getElementById('worstBox');wb.innerHTML=msgs.join('<br>');wb.classList.toggle('show',msgs.length>0);
+  drawRadar();
+}
+function drawRadar(){
+  const cv=document.getElementById('radar'),ctx=cv.getContext('2d');const W=cv.width,H=cv.height,cx=W/2,cy=H/2+6,R=108,N=9;
+  ctx.clearRect(0,0,W,H);const ang=i=>-Math.PI/2+i*2*Math.PI/N;
+  for(let gg=1;gg<=4;gg++){ctx.beginPath();for(let i=0;i<N;i++){const r=R*gg/4,x=cx+r*Math.cos(ang(i)),y=cy+r*Math.sin(ang(i));i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.closePath();ctx.strokeStyle='#e6e2d7';ctx.stroke();}
+  for(let i=0;i<N;i++){ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+R*Math.cos(ang(i)),cy+R*Math.sin(ang(i)));ctx.strokeStyle='#eceef1';ctx.stroke();}
+  ctx.beginPath();let any=false;
+  RUBRIC.forEach((d,i)=>{const p=dimPct(d);const r=R*((p==null?0:p)/100);const x=cx+r*Math.cos(ang(i)),y=cy+r*Math.sin(ang(i));i?ctx.lineTo(x,y):ctx.moveTo(x,y);if(p!=null)any=true;});
+  ctx.closePath();if(any){ctx.fillStyle='rgba(39,67,196,.15)';ctx.fill();ctx.strokeStyle='#2743c4';ctx.lineWidth=1.8;ctx.stroke();ctx.lineWidth=1;}
+  ctx.fillStyle='#8b9099';ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+  for(let i=0;i<N;i++){ctx.fillText(DIM_SHORT[i],cx+(R+19)*Math.cos(ang(i)),cy+(R+14)*Math.sin(ang(i)));}
+}
+/* 权重档 */
+document.getElementById('profile').addEventListener('change',e=>{const p=e.target.value;
+  document.getElementById('profName').textContent=p;weights=PROFILES[p].slice();
+  renderWeights();recompute();});
+function renderWeights(){
+  const p=document.getElementById('profile').value;const ed=document.getElementById('wtEdit');ed.style.display='block';
+  const note='<div class="wt-note">各维度权重(合计 100)· 权重<b>公开可调</b>——这是保证中立、不被指偏心的机制之一。切换权重档或自定义,同一份打分立刻换一个视角。</div>';
+  if(p==='自定义'){
+    ed.innerHTML=note+'<div class="wt-grid">'+RUBRIC.map((d,i)=>`<label class="wt-item">${d.id} ${d.name}<input type="number" min="0" max="100" value="${weights[i]}" oninput="setWt(${i},this.value)"></label>`).join('')+'<span class="wt-sum">合计 <b id="wtSum">100</b></span></div>';
+    updWtSum();
+  }else{
+    ed.innerHTML=note+'<div class="wt-grid">'+RUBRIC.map((d,i)=>`<span class="wt-item ro">${d.id} ${d.name}<b>${weights[i]}</b></span>`).join('')+'</div>';
+  }
+}
+function setWt(i,v){weights[i]=Number(v)||0;PROFILES['自定义'][i]=weights[i];updWtSum();recompute();}
+function updWtSum(){const s=weights.reduce((a,b)=>a+b,0),el=document.getElementById('wtSum');if(el){el.textContent=s;el.style.color=s===100?'#1f9d63':'#d64545';}}
+document.querySelectorAll('.vetoChk').forEach(c=>c.addEventListener('change',recompute));
+function exportJSON(){const data={tool:v('m_tool'),version:v('m_ver'),by:v('m_by'),coi:v('m_coi'),promptSet:v('m_q'),
+  mode:v('m_mode'),blind:v('m_blind'),profile:document.getElementById('profile').value,weights,scores,
+  veto:[...document.querySelectorAll('.vetoChk')].filter(c=>c.checked).map(c=>c.dataset.k),worstNote:v('worstNote'),
+  total:document.getElementById('totalNum').textContent,grade:document.getElementById('gradeBadge').textContent};
+  const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');
+  a.href=URL.createObjectURL(b);a.download=(data.tool||'OPES')+'_评分.json';a.click();}
+function doPrint(){const pt=document.getElementById('printTool');const t=v('m_tool');if(pt)pt.textContent=t?(' · '+t):'';window.print();}
+function v(id){return document.getElementById(id).value;}
+function resetAll(){if(!confirm('清空所有评分？'))return;for(const k in scores)delete scores[k];
+  document.querySelectorAll('.scale button').forEach(b=>b.classList.remove('on'));
+  document.querySelectorAll('.vetoChk').forEach(c=>c.checked=false);document.getElementById('worstNote').value='';recompute();}
+
+/* ===== 导航 / 滚动 ===== */
+function go(id,noHash){const el=document.getElementById(id);el&&el.scrollIntoView({behavior:'smooth',block:id==='drawer'?'nearest':'start'});}
+const secs=['s-model','s-rubric','s-howto','s-score'];
+function onScroll(){
+  const h=document.documentElement;const sp=h.scrollTop/(h.scrollHeight-h.clientHeight)*100;
+  document.getElementById('pbar').style.width=sp+'%';
+  let cur=secs[0];for(const s of secs){if(document.getElementById(s).getBoundingClientRect().top<=120)cur=s;}
+  document.querySelectorAll('nav .links a').forEach(a=>a.classList.toggle('on',a.dataset.s===cur));
+}
+window.addEventListener('scroll',onScroll,{passive:true});
+
+/* 初始化 */
+buildModel();drawMiniRadar();buildExplorer();buildPrompts();buildDims();renderWeights();recompute();onScroll();
+/* 滚动渐显 */
+if('IntersectionObserver' in window){
+  const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}}),{threshold:.12});
+  document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+  setTimeout(()=>document.querySelectorAll('.reveal:not(.in)').forEach(el=>el.classList.add('in')),1600);
+}else document.querySelectorAll('.reveal').forEach(el=>el.classList.add('in'));
+</script>
+</body>
+</html>
